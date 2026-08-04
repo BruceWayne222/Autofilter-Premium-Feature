@@ -1,49 +1,44 @@
 import os
-import imghdr
+from os import getenv
 import requests
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
-TELEGRAPH_UPLOAD_URL = "https://telegra.ph/upload"
-SUPPORTED_TYPES = {"jpeg", "png"}  # imghdr reports jpg files as "jpeg"
+# Set IMGBB_API_KEY as an environment variable on your host (Heroku config vars, etc.)
+# Get a free key at https://api.imgbb.com/
+IMGBB_API_KEY = getenv("IMGBB_API_KEY", "d4cc3d793cb68b2c6cdc2197588e895c")
+IMGBB_UPLOAD_URL = "https://api.imgbb.com/1/upload"
 
 
 def img2url(file_path: str) -> str:
-    """Upload an image file to telegra.ph and return its direct URL.
+    """Upload an image file to ImgBB and return its direct URL.
 
     Raises:
-        ValueError: if the file is missing or not a supported image type.
-        RuntimeError: if the upload fails or telegra.ph returns an unexpected response.
+        ValueError: if the file is missing.
+        RuntimeError: if the upload fails or ImgBB returns an unexpected response.
     """
     if not os.path.isfile(file_path):
         raise ValueError("File does not exist.")
 
-    img_type = imghdr.what(file_path)
-    if img_type not in SUPPORTED_TYPES:
-        raise ValueError("Unsupported image type. Only jpg, jpeg, png are allowed.")
-
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; TelegraphUploader/1.0)"}
-
     with open(file_path, "rb") as f:
         resp = requests.post(
-            TELEGRAPH_UPLOAD_URL,
-            files={"file0": (f"file0.{img_type}", f, f"image/{img_type}")},
-            headers=headers,
+            IMGBB_UPLOAD_URL,
+            data={"key": IMGBB_API_KEY},
+            files={"image": f},
         )
 
     try:
         result = resp.json()
     except ValueError:
         raise RuntimeError(
-            f"Unexpected response from telegra.ph (HTTP {resp.status_code}): {resp.text[:200]}"
+            f"Unexpected response from ImgBB (HTTP {resp.status_code}): {resp.text[:200]}"
         )
 
-    if isinstance(result, dict) and result.get("error"):
-        raise RuntimeError(result["error"])
-    if not isinstance(result, list) or not result or "src" not in result[0]:
-        raise RuntimeError(f"Unexpected response from telegra.ph: {result}")
+    if resp.status_code == 200 and result.get("success"):
+        return result["data"]["url"]
 
-    return "https://telegra.ph" + result[0]["src"]
+    error_msg = result.get("error", {}).get("message") if isinstance(result.get("error"), dict) else result.get("error")
+    raise RuntimeError(error_msg or "Something went wrong. Please try again later.")
 
 
 @Client.on_message(filters.command(["img", "cup", "telegraph"], prefixes="/") & filters.reply)
