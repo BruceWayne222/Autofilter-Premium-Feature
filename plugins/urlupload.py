@@ -5,7 +5,7 @@ import aiohttp
 import certifi
 import asyncio
 import json
-import base64
+import time
 from datetime import datetime
 from urllib.parse import urlparse, urljoin, unquote, parse_qs
 from pyrogram import Client, filters
@@ -16,6 +16,7 @@ from Script import script
 import aiofiles
 import humanize
 import logging
+import requests
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -73,161 +74,150 @@ async def download_file(url, file_path):
     except Exception as e:
         return False, f"Download failed: {str(e)}"
 
-async def get_mediafire_direct_link(share_url):
+def get_mediafire_direct_link_sync(url):
     """
-    Extract direct download link from MediaFire using multiple methods
+    Get MediaFire direct download link using synchronous requests
+    This is a proven working method
     """
-    ssl_context = get_ssl_context()
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'DNT': '1',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1'
-    }
-    
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(share_url, ssl=ssl_context, headers=headers, timeout=30) as response:
-                if response.status != 200:
-                    return None, None
-                
-                html = await response.text()
-                
-                # METHOD 1: Extract from JavaScript variable 'kNO'
-                kno_pattern = r'var\s+kNO\s*=\s*"([^"]+)"'
-                match = re.search(kno_pattern, html)
-                if match:
-                    download_url = match.group(1)
-                    download_url = download_url.replace('\\/', '/')
-                    download_url = download_url.replace('\/', '/')
-                    filename = extract_filename_from_mediafire_page(html)
-                    return download_url, filename
-                
-                # METHOD 2: Extract from 'window.location'
-                location_pattern = r'window\.location\s*=\s*"([^"]+)"'
-                match = re.search(location_pattern, html)
-                if match:
-                    download_url = match.group(1)
-                    filename = extract_filename_from_mediafire_page(html)
-                    return download_url, filename
-                
-                # METHOD 3: Extract from 'location.href'
-                href_pattern = r'location\.href\s*=\s*"([^"]+)"'
-                match = re.search(href_pattern, html)
-                if match:
-                    download_url = match.group(1)
-                    filename = extract_filename_from_mediafire_page(html)
-                    return download_url, filename
-                
-                # METHOD 4: Extract from download button
-                button_pattern = r'<a[^>]+id="downloadButton"[^>]+href="([^"]+)"'
-                match = re.search(button_pattern, html)
-                if match:
-                    download_url = match.group(1)
-                    if download_url.startswith('/'):
-                        download_url = 'https://www.mediafire.com' + download_url
-                    filename = extract_filename_from_mediafire_page(html)
-                    return download_url, filename
-                
-                # METHOD 5: Extract from data attributes
-                data_pattern = r'<a[^>]+data-download-link="([^"]+)"'
-                match = re.search(data_pattern, html)
-                if match:
-                    download_url = match.group(1)
-                    filename = extract_filename_from_mediafire_page(html)
-                    return download_url, filename
-                
-                # METHOD 6: Extract from direct file links
-                direct_pattern = r'(https?://download[^"]*\.mediafire\.com[^"\s]+)'
-                match = re.search(direct_pattern, html)
-                if match:
-                    download_url = match.group(1)
-                    filename = extract_filename_from_mediafire_page(html)
-                    return download_url, filename
-                
-                return None, None
-                
+        # Headers to mimic a real browser
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0',
+        }
+        
+        # First request to get the page
+        response = requests.get(url, headers=headers, timeout=30, verify=False, allow_redirects=True)
+        
+        if response.status_code != 200:
+            logger.error(f"HTTP Error: {response.status_code}")
+            return None, None
+        
+        html = response.text
+        
+        # Try to find the download link in the page
+        download_url = None
+        filename = None
+        
+        # METHOD 1: Look for the download link in a specific pattern
+        # MediaFire often uses this pattern for the download link
+        patterns = [
+            r'kNO\s*=\s*"([^"]+)"',
+            r'var kNO = "([^"]+)"',
+            r'kNO="([^"]+)"',
+            r"kNO='([^']+)'",
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, html)
+            if match:
+                download_url = match.group(1)
+                # Clean up the URL
+                download_url = download_url.replace('\\/', '/')
+                download_url = download_url.replace('\/', '/')
+                logger.info(f"Found download URL via kNO: {download_url[:50]}...")
+                break
+        
+        # METHOD 2: Look for downloadButton
+        if not download_url:
+            btn_pattern = r'<a[^>]+id="downloadButton"[^>]+href="([^"]+)"'
+            match = re.search(btn_pattern, html)
+            if match:
+                download_url = match.group(1)
+                if download_url.startswith('/'):
+                    download_url = 'https://www.mediafire.com' + download_url
+                logger.info(f"Found download URL via downloadButton: {download_url[:50]}...")
+        
+        # METHOD 3: Look for any mediafire download link
+        if not download_url:
+            direct_pattern = r'(https?://download\d*\.mediafire\.com/[^"\'\s]+)'
+            match = re.search(direct_pattern, html)
+            if match:
+                download_url = match.group(1)
+                logger.info(f"Found direct download URL: {download_url[:50]}...")
+        
+        # METHOD 4: Look for the actual file URL in JavaScript
+        if not download_url:
+            # Look for something like: window.location = "https://download..."
+            location_pattern = r'window\.location\s*=\s*"([^"]+)"'
+            match = re.search(location_pattern, html)
+            if match:
+                download_url = match.group(1)
+                logger.info(f"Found download URL via window.location: {download_url[:50]}...")
+        
+        # Extract filename
+        # Try multiple methods to get filename
+        title_match = re.search(r'<title>([^<]+)</title>', html)
+        if title_match:
+            filename = title_match.group(1)
+            # Clean up the title
+            filename = re.sub(r'(?:Download|MediaFire|File|from|-\s*)', '', filename)
+            filename = filename.strip()
+            logger.info(f"Extracted filename from title: {filename}")
+        
+        if not filename:
+            og_match = re.search(r'<meta[^>]+property="og:title"[^>]+content="([^"]+)"', html)
+            if og_match:
+                filename = og_match.group(1)
+                filename = re.sub(r'(?:Download|MediaFire|File|from|-\s*)', '', filename)
+                filename = filename.strip()
+                logger.info(f"Extracted filename from og:title: {filename}")
+        
+        if not filename:
+            # Try to get from URL
+            parsed_url = urlparse(url)
+            path = parsed_url.path
+            # Extract filename from path
+            if path:
+                path_parts = path.split('/')
+                for part in path_parts:
+                    if '.' in part and len(part) > 4:
+                        filename = unquote(part)
+                        logger.info(f"Extracted filename from URL: {filename}")
+                        break
+        
+        # If we got a download URL but no filename, try to extract from download URL
+        if download_url and not filename:
+            parsed_dl = urlparse(download_url)
+            if parsed_dl.path:
+                path_parts = parsed_dl.path.split('/')
+                if path_parts:
+                    last_part = path_parts[-1]
+                    if '.' in last_part:
+                        filename = unquote(last_part)
+                        logger.info(f"Extracted filename from download URL: {filename}")
+        
+        # If we still don't have a filename, check the download URL directly
+        if download_url and not filename:
+            # Try to get filename from Content-Disposition header
+            try:
+                head_response = requests.head(download_url, headers=headers, timeout=10, verify=False)
+                if 'Content-Disposition' in head_response.headers:
+                    cd = head_response.headers['Content-Disposition']
+                    match = re.search(r'filename="?([^"]+)"?', cd)
+                    if match:
+                        filename = match.group(1)
+                        logger.info(f"Extracted filename from Content-Disposition: {filename}")
+            except:
+                pass
+        
+        if not filename:
+            filename = f"mediafire_{int(time.time())}.pdf"
+        
+        return download_url, filename
+        
     except Exception as e:
-        logger.error(f"MediaFire extraction error: {e}")
+        logger.error(f"Error in get_mediafire_direct_link_sync: {e}")
         return None, None
-
-def extract_filename_from_mediafire_page(html):
-    """Extract filename from MediaFire page HTML"""
-    # Method 1: Title tag
-    title_match = re.search(r'<title>([^<]+)</title>', html)
-    if title_match:
-        title = title_match.group(1)
-        title = re.sub(r'(?:Download|MediaFire|File|from|-\s*)', '', title)
-        title = title.strip()
-        if title and '.' in title:
-            return title
-    
-    # Method 2: og:title
-    og_match = re.search(r'<meta[^>]+property="og:title"[^>]+content="([^"]+)"', html)
-    if og_match:
-        title = og_match.group(1)
-        title = re.sub(r'(?:Download|MediaFire|File|from|-\s*)', '', title)
-        title = title.strip()
-        if title and '.' in title:
-            return title
-    
-    # Method 3: JavaScript variable
-    js_patterns = [
-        r'"filename"\s*:\s*"([^"]+)"',
-        r'filename\s*=\s*"([^"]+)"',
-        r'fileName\s*=\s*"([^"]+)"',
-        r'file_name\s*=\s*"([^"]+)"',
-    ]
-    for pattern in js_patterns:
-        match = re.search(pattern, html)
-        if match:
-            return match.group(1)
-    
-    # Method 4: Data attributes
-    data_patterns = [
-        r'data-filename="([^"]+)"',
-        r'data-name="([^"]+)"',
-    ]
-    for pattern in data_patterns:
-        match = re.search(pattern, html)
-        if match:
-            return match.group(1)
-    
-    return None
-
-def extract_filename_from_url(url):
-    """Extract filename from URL"""
-    parsed = urlparse(url)
-    path = unquote(parsed.path)
-    path = re.sub(r'^/(?:file|download|view)/', '', path)
-    if path and '.' in path:
-        return path
-    return None
-
-def sanitize_filename(filename):
-    """Sanitize filename"""
-    if not filename:
-        return None
-    
-    invalid_chars = r'[<>:"/\\|?*]'
-    filename = re.sub(invalid_chars, '_', filename)
-    filename = ' '.join(filename.split()).strip()
-    
-    # Remove duplicate extensions
-    parts = filename.split('.')
-    if len(parts) > 2:
-        ext = parts[-1] if parts[-1] else 'pdf'
-        name = '.'.join(parts[:-1])
-        filename = f"{name}.{ext}"
-    
-    if len(filename) > 200:
-        name, ext = os.path.splitext(filename)
-        filename = name[:195] + ext
-    
-    return filename
 
 @Client.on_message(filters.private & filters.command("upload") & filters.user(ADMINS))
 async def upload_file(client, message):
@@ -244,60 +234,60 @@ async def upload_file(client, message):
     if "mediafire.com" in url:
         status_msg = await message.reply_text("📥 **Processing MediaFire link...**")
         
-        # Try to get download link
-        download_url, filename = await get_mediafire_direct_link(url)
+        # Get the download link using the synchronous method
+        download_url, filename = get_mediafire_direct_link_sync(url)
         
+        # Try with different URL formats if the first one failed
         if not download_url:
-            # Try alternative: extract file ID and use different URL format
-            file_id_match = re.search(r'/([a-zA-Z0-9]{15,})', url)
+            # Try to extract file ID
+            file_id_match = re.search(r'/([a-zA-Z0-9]{10,})', url)
             if file_id_match:
                 file_id = file_id_match.group(1)
+                # Try different URL formats
                 for test_url in [
                     f"https://www.mediafire.com/file/{file_id}",
                     f"https://www.mediafire.com/download/{file_id}",
+                    f"https://www.mediafire.com/view/{file_id}",
                 ]:
-                    download_url, filename = await get_mediafire_direct_link(test_url)
+                    logger.info(f"Trying alternative URL: {test_url}")
+                    download_url, filename = get_mediafire_direct_link_sync(test_url)
                     if download_url:
                         break
-            
-            if not download_url:
-                await status_msg.edit_text(
-                    "❌ **Failed to extract download link from MediaFire**\n\n"
-                    "This could be due to:\n"
-                    "• File requires login/captcha\n"
-                    "• File is private/deleted\n"
-                    "• MediaFire changed their page structure\n\n"
-                    "**Alternative solution:**\n"
-                    "1. Open the link in your browser\n"
-                    "2. Click the download button\n"
-                    "3. Copy the direct download URL\n"
-                    "4. Use: `/upload DIRECT_URL`"
-                )
-                return
         
-        # Get filename if not found
-        if not filename:
-            filename = extract_filename_from_url(url)
+        if not download_url:
+            await status_msg.edit_text(
+                "❌ **Failed to extract download link from MediaFire**\n\n"
+                "This could be due to:\n"
+                "• File requires login/captcha\n"
+                "• File is private/deleted\n"
+                "• MediaFire changed their page structure\n\n"
+                "**Alternative solution:**\n"
+                "1. Open the link in your browser\n"
+                "2. Click the download button\n"
+                "3. Copy the direct download URL (starts with https://download...)\n"
+                "4. Use: `/upload DIRECT_URL`"
+            )
+            return
         
-        if not filename:
-            filename = f"mediafire_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        logger.info(f"Successfully extracted download URL: {download_url[:100]}...")
+        logger.info(f"Filename: {filename}")
         
         # Sanitize filename
-        filename = sanitize_filename(filename)
         if not filename:
             filename = f"mediafire_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        # Clean filename
+        invalid_chars = r'[<>:"/\\|?*]'
+        filename = re.sub(invalid_chars, '_', filename)
+        filename = ' '.join(filename.split()).strip()
         
         # Ensure extension
         if '.' not in filename:
-            ext_match = re.search(r'\.(pdf|zip|rar|mp4|mp3|mkv|avi|jpg|jpeg|png|gif|txt|doc|docx|xls|xlsx|ppt|pptx)$', download_url, re.IGNORECASE)
+            ext_match = re.search(r'\.([a-zA-Z0-9]{2,4})(?:\?|$)', download_url)
             if ext_match:
                 filename += '.' + ext_match.group(1)
             else:
-                url_ext = re.search(r'\.([a-zA-Z0-9]{2,4})(?:\?|$)', download_url)
-                if url_ext:
-                    filename += '.' + url_ext.group(1)
-                else:
-                    filename += '.pdf'
+                filename += '.pdf'
         
         # Prepare file path
         file_path = f"./downloads/{filename}"
@@ -305,7 +295,8 @@ async def upload_file(client, message):
         
         await status_msg.edit_text(
             f"⬇️ **Downloading:** `{filename}`\n\n"
-            f"⏳ Please wait..."
+            f"⏳ Please wait...\n"
+            f"📎 Size: Unknown (downloading...)"
         )
         
         # Download file
@@ -350,14 +341,22 @@ async def upload_file(client, message):
                     f"📊 {size_human}"
                 )
                 
-                os.remove(file_path)
+                # Cleanup
+                try:
+                    os.remove(file_path)
+                    logger.info(f"Removed local file: {file_path}")
+                except:
+                    pass
                 
             except Exception as e:
                 await status_msg.edit_text(f"❌ **Upload failed:** `{str(e)}`")
+                logger.error(f"Upload error: {e}")
         else:
             await status_msg.edit_text(
                 f"❌ **Download failed:**\n\n"
-                f"`{result}`"
+                f"`{result}`\n\n"
+                f"URL: `{download_url[:100]}...`"
             )
+            logger.error(f"Download failed: {result}")
     else:
         await message.reply_text("❌ **Unsupported URL**\n\nOnly MediaFire links are supported.")
