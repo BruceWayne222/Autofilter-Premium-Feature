@@ -220,8 +220,8 @@ async def media_handler(bot, message):
             message_id=message.id,
             emoji="✅"
         )
-    except Exception as e:
-        logger.warning(f"Could not react to saved file message {message.id}: {e}")
+    except Exception:
+        logger.exception(f"Could not react to saved file message {message.id}")
 
     try:
         if await db.movie_update_status(bot.me.id):
