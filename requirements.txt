@@ -1,21 +1,30 @@
+# Core Pyrogram
 pyrofork==2.3.45
 tgcrypto-pyrofork
+
+# Database
 pymongo==4.13.2
 motor==3.7.1
 marshmallow<4.0.0
 umongo
+
+# HTTP & Web
 requests
+aiohttp
 bs4
 shortzy
+wget
+aiofiles
+pyshorteners
+
+# Time & Date
 datetime
 pytz
-aiohttp
+apscheduler
 
-
-
-# Other tools
-opencv-python-headless==4.8.1.78
+# Utilities
 python-dotenv==0.21.1
+python-decouple
 PyLeaves==1.0.2
 humanize
 Pillow
@@ -23,19 +32,19 @@ psutil
 numpy
 wheel
 ujson
-wget
-aiofiles
 dnspython==2.7.0
-python-decouple
-ffmpeg-python==0.2.0
 jinja2
-apscheduler
-pyshorteners
-pyromod
 colorama
 fuzzywuzzy
 Levenshtein==0.24.0
 
+# Media & Video
+opencv-python-headless==4.8.1.78
+ffmpeg-python==0.2.0
+
+# Additional
+pyromod
+certifi  # ← ADD THIS (fixes SSL)
 
 # Git-based Packages
 git+https://github.com/Joelkb/cinemagoer
