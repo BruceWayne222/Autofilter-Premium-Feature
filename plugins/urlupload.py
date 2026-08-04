@@ -1,197 +1,261 @@
 import os
 import re
-import time
-import mimetypes
-import humanize
+import ssl
 import aiohttp
-import aiofiles
-from urllib.parse import urlparse, unquote
-
+import certifi
+from urllib.parse import urlparse, urljoin, unquote
 from pyrogram import Client, filters
-from pyrogram.types import Message
-
-from info import ADMINS
-from utils import temp
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from info import ADMINS, LOG_CHANNEL
 from database.users_chats_db import db
+from Script import script
 
-DOWNLOAD_DIR = "./downloads"
-THUMB_DIR = "./thumbnails"
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-os.makedirs(THUMB_DIR, exist_ok=True)
-
-THUMB_SETTING_KEY = "global_url_thumb"
-
-# Telegram bot API upload limit. Override with MAX_UPLOAD_SIZE_MB env var if you run
-# a local Bot API server (which supports up to 4000 MB instead of the default 2000 MB).
-MAX_UPLOAD_SIZE_MB = int(os.environ.get("MAX_UPLOAD_SIZE_MB", "2000"))
-
-VIDEO_EXTS = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v"}
-
-PROGRESS_EDIT_INTERVAL = 5  # seconds between progress message edits, to avoid FloodWait
-
-
-def humanbytes(size):
-    if not size:
-        return "0 B"
-    return humanize.naturalsize(size, binary=True)
-
-
-def get_filename_from_headers(url, headers):
-    cd = headers.get("Content-Disposition", "")
-    match = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";\n]+)"?', cd)
-    if match:
-        return unquote(match.group(1).strip())
-
-    path = urlparse(url).path
-    name = os.path.basename(path)
-    if name:
-        return unquote(name)
-
-    ext = mimetypes.guess_extension(headers.get("Content-Type", "").split(";")[0].strip()) or ""
-    return f"file_{int(time.time())}{ext}"
-
-
-async def download_thumb_locally(client, file_id):
-    """Downloads the stored thumbnail file_id to a fresh local jpg for use in this upload."""
-    path = os.path.join(THUMB_DIR, f"thumb_{int(time.time())}.jpg")
+# SSL Context for downloads
+def get_ssl_context():
+    """Create SSL context that handles certificate issues"""
     try:
-        result = await client.download_media(file_id, file_name=path)
-        return result
-    except Exception:
-        return None
+        # Try using certifi first
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+        return ssl_context
+    except:
+        # Fallback to disabled verification (for MediaFire)
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        return ssl_context
 
-
-@Client.on_message(filters.command("setthumb") & filters.user(ADMINS))
-async def set_thumb(client, message: Message):
-    reply = message.reply_to_message
-    if not reply or not reply.photo:
-        return await message.reply_text(
-            "Reply to a photo with /setthumb to set it as the bot's global upload thumbnail."
-        )
-    file_id = reply.photo.file_id
-    await db.update_bot_setting(temp.ME, THUMB_SETTING_KEY, file_id)
-    await message.reply_text("✅ Global thumbnail updated. It'll be used for all future /upload uploads.")
-
-
-@Client.on_message(filters.command("viewthumb") & filters.user(ADMINS))
-async def view_thumb(client, message: Message):
-    file_id = await db.get_bot_setting(temp.ME, THUMB_SETTING_KEY, None)
-    if not file_id:
-        return await message.reply_text("No global thumbnail set. Use /setthumb (reply to a photo) to set one.")
-    await client.send_photo(message.chat.id, file_id, caption="Current global upload thumbnail.")
-
-
-@Client.on_message(filters.command("delthumb") & filters.user(ADMINS))
-async def del_thumb(client, message: Message):
-    await db.update_bot_setting(temp.ME, THUMB_SETTING_KEY, None)
-    await message.reply_text("🗑 Global thumbnail cleared. Uploads will use auto-generated thumbnails (for videos) or none.")
-
-
-@Client.on_message(filters.command("upload") & filters.user(ADMINS))
-async def url_upload(client, message: Message):
-    if len(message.command) < 2:
-        return await message.reply_text(
-            "Usage: <code>/upload &lt;direct url&gt;</code>\n\n"
-            "Reply with a caption via <code>/upload &lt;url&gt; | your caption</code> (optional)."
-        )
-
-    raw_args = message.text.split(None, 1)[1]
-    if "|" in raw_args:
-        url, caption = (part.strip() for part in raw_args.split("|", 1))
-    else:
-        url, caption = raw_args.strip(), None
-
-    if not re.match(r"^https?://", url, re.IGNORECASE):
-        return await message.reply_text("That doesn't look like a valid http(s) URL.")
-
-    status = await message.reply_text("🔗 Resolving link...")
-
-    file_path = None
-    local_thumb = None
+async def download_file(url, file_path):
+    """Download file with proper SSL handling"""
+    ssl_context = get_ssl_context()
+    
     try:
-        timeout = aiohttp.ClientTimeout(total=None, sock_connect=30, sock_read=60)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(url, allow_redirects=True) as resp:
-                if resp.status != 200:
-                    return await status.edit_text(f"❌ Server returned HTTP {resp.status} for this link.")
-
-                total_size = int(resp.headers.get("Content-Length", 0))
-                if total_size and total_size > MAX_UPLOAD_SIZE_MB * 1024 * 1024:
-                    return await status.edit_text(
-                        f"❌ File is {humanbytes(total_size)}, which exceeds the "
-                        f"{MAX_UPLOAD_SIZE_MB} MB upload limit."
-                    )
-
-                filename = get_filename_from_headers(str(resp.url), resp.headers)
-                file_path = os.path.join(DOWNLOAD_DIR, f"{int(time.time())}_{filename}")
-
-                downloaded = 0
-                last_update = time.time()
-                await status.edit_text(f"⬇️ Downloading <b>{filename}</b>...")
-
-                async with aiofiles.open(file_path, "wb") as f:
-                    async for chunk in resp.content.iter_chunked(1024 * 1024):
-                        await f.write(chunk)
-                        downloaded += len(chunk)
-                        now = time.time()
-                        if now - last_update >= PROGRESS_EDIT_INTERVAL:
-                            last_update = now
-                            pct = f"{downloaded * 100 / total_size:.1f}%" if total_size else humanbytes(downloaded)
-                            try:
-                                await status.edit_text(f"⬇️ Downloading <b>{filename}</b>\n{pct}")
-                            except Exception:
-                                pass
-
-        actual_size = os.path.getsize(file_path)
-        if actual_size > MAX_UPLOAD_SIZE_MB * 1024 * 1024:
-            return await status.edit_text(
-                f"❌ Downloaded file is {humanbytes(actual_size)}, which exceeds the "
-                f"{MAX_UPLOAD_SIZE_MB} MB upload limit."
-            )
-
-        thumb_file_id = await db.get_bot_setting(temp.ME, THUMB_SETTING_KEY, None)
-        if thumb_file_id:
-            local_thumb = await download_thumb_locally(client, thumb_file_id)
-
-        await status.edit_text(f"⬆️ Uploading <b>{filename}</b>...")
-
-        last_update = time.time()
-
-        async def progress(current, total):
-            nonlocal last_update
-            now = time.time()
-            if now - last_update >= PROGRESS_EDIT_INTERVAL:
-                last_update = now
-                pct = f"{current * 100 / total:.1f}%" if total else humanbytes(current)
-                try:
-                    await status.edit_text(f"⬆️ Uploading <b>{filename}</b>\n{pct}")
-                except Exception:
-                    pass
-
-        ext = os.path.splitext(filename)[1].lower()
-        send_kwargs = dict(
-            chat_id=message.chat.id,
-            caption=caption or filename,
-            thumb=local_thumb,
-            progress=progress,
-            reply_to_message_id=message.id,
-        )
-
-        if ext in VIDEO_EXTS:
-            await client.send_video(video=file_path, **send_kwargs)
-        else:
-            await client.send_document(document=file_path, **send_kwargs)
-
-        await status.delete()
-
-    except aiohttp.ClientError as e:
-        await status.edit_text(f"❌ Download failed: {e}")
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, ssl=ssl_context, timeout=300) as response:
+                if response.status == 200:
+                    with open(file_path, 'wb') as f:
+                        f.write(await response.read())
+                    return True, "Download successful"
+                return False, f"HTTP Error: {response.status}"
+    except aiohttp.ClientSSLError as e:
+        # If SSL fails, retry with disabled verification
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, ssl=ssl_context, timeout=300) as response:
+                    if response.status == 200:
+                        with open(file_path, 'wb') as f:
+                            f.write(await response.read())
+                        return True, "Download successful (SSL bypassed)"
+                    return False, f"HTTP Error: {response.status}"
+        except Exception as e:
+            return False, f"SSL retry failed: {str(e)}"
     except Exception as e:
-        await status.edit_text(f"❌ Error: {e}")
-    finally:
-        for p in (file_path, local_thumb):
-            if p and os.path.exists(p):
-                try:
-                    os.remove(p)
-                except Exception:
-                    pass
+        return False, f"Download failed: {str(e)}"
+
+# MediaFire URL extractor
+def extract_mediafire_url(text):
+    """Extract MediaFire URL from text"""
+    pattern = r'(?:https?://)?(?:www\.)?mediafire\.com/(?:file|view|download)/([a-zA-Z0-9]+)'
+    match = re.search(pattern, text)
+    if match:
+        return f"https://www.mediafire.com/file/{match.group(1)}/"
+    return None
+
+def extract_filename_from_mediafire(html):
+    """Extract original filename from MediaFire page"""
+    # Method 1: Look for filename in page title
+    title_pattern = r'<title>([^<]+)</title>'
+    match = re.search(title_pattern, html)
+    if match:
+        title = match.group(1)
+        # Remove "MediaFire" from title
+        filename = title.replace('MediaFire', '').strip()
+        if filename:
+            return filename
+    
+    # Method 2: Look for filename in download button
+    name_pattern = r'<a[^>]+id="downloadButton"[^>]+data-filename="([^"]+)"'
+    match = re.search(name_pattern, html)
+    if match:
+        return match.group(1)
+    
+    # Method 3: Look for filename in the page
+    name_pattern2 = r'"filename":"([^"]+)"'
+    match = re.search(name_pattern2, html)
+    if match:
+        return match.group(1)
+    
+    # Method 4: Look for filename in URL
+    name_pattern3 = r'<meta property="og:title" content="([^"]+)"'
+    match = re.search(name_pattern3, html)
+    if match:
+        return match.group(1)
+    
+    return None
+
+def sanitize_filename(filename):
+    """Remove invalid characters from filename"""
+    # Remove invalid characters for Windows/Linux
+    invalid_chars = r'[<>:"/\\|?*]'
+    filename = re.sub(invalid_chars, '_', filename)
+    
+    # Remove extra spaces
+    filename = ' '.join(filename.split())
+    
+    # Limit filename length
+    if len(filename) > 200:
+        name, ext = os.path.splitext(filename)
+        filename = name[:195] + ext
+    
+    return filename
+
+async def get_mediafire_download_link(share_url):
+    """Get actual download link and filename from MediaFire share URL"""
+    ssl_context = get_ssl_context()
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(share_url, ssl=ssl_context) as response:
+                if response.status != 200:
+                    return None, None
+                
+                html = await response.text()
+                
+                # Extract filename first
+                filename = extract_filename_from_mediafire(html)
+                
+                # Extract download link from HTML
+                # Method 1: Look for 'kNO' variable (common in MediaFire)
+                pattern1 = r'kNO\s*=\s*"([^"]+)"'
+                match1 = re.search(pattern1, html)
+                if match1:
+                    return match1.group(1), filename
+                
+                # Method 2: Look for download button link
+                pattern2 = r'<a[^>]+id="downloadButton"[^>]+href="([^"]+)"'
+                match2 = re.search(pattern2, html)
+                if match2:
+                    return match2.group(1), filename
+                
+                # Method 3: Look for any direct file link
+                pattern3 = r'(?:https?://)?(?:download\d+\.mediafire\.com/[^"\']+)'
+                match3 = re.search(pattern3, html)
+                if match3:
+                    return match3.group(0), filename
+                
+                return None, filename
+    except Exception as e:
+        print(f"MediaFire extract error: {e}")
+        return None, None
+
+async def get_filename_from_url(url):
+    """Extract filename from URL as fallback"""
+    parsed = urlparse(url)
+    path = unquote(parsed.path)
+    filename = os.path.basename(path)
+    
+    # If filename is empty or has no extension, try to get from query params
+    if not filename or '.' not in filename:
+        query = parsed.query
+        if 'filename=' in query:
+            match = re.search(r'filename=([^&]+)', query)
+            if match:
+                filename = unquote(match.group(1))
+    
+    return filename if filename else "downloaded_file"
+
+@Client.on_message(filters.private & filters.command("upload") & filters.user(ADMINS))
+async def upload_file(client, message):
+    """Handle /upload command for admins"""
+    if len(message.command) < 2:
+        await message.reply_text("❌ Please provide a URL\n\nExample: `/upload https://www.mediafire.com/file/xxx/`")
+        return
+    
+    url = message.command[1].strip()
+    
+    # Check if it's a MediaFire URL
+    if "mediafire.com" in url:
+        status_msg = await message.reply_text("📥 Processing MediaFire link...")
+        
+        # Get actual download link and filename
+        download_url, filename = await get_mediafire_download_link(url)
+        
+        if not download_url:
+            await status_msg.edit_text("❌ Failed to extract download link from MediaFire")
+            return
+        
+        # If no filename extracted, use a fallback
+        if not filename:
+            filename = await get_filename_from_url(url)
+            if not filename:
+                filename = f"mediafire_file_{int(os.path.getsize('')) or 'unknown'}"
+        
+        # Sanitize filename
+        filename = sanitize_filename(filename)
+        
+        # Ensure file has proper extension
+        if '.' not in filename:
+            # Try to detect from URL or add .pdf as fallback
+            if 'pdf' in url.lower():
+                filename += '.pdf'
+            elif 'zip' in url.lower():
+                filename += '.zip'
+            elif 'rar' in url.lower():
+                filename += '.rar'
+            elif 'mp4' in url.lower():
+                filename += '.mp4'
+            elif 'mp3' in url.lower():
+                filename += '.mp3'
+            else:
+                filename += '.pdf'  # Default extension
+        
+        # Prepare file path
+        file_path = f"./downloads/{filename}"
+        
+        # Ensure downloads directory exists
+        os.makedirs("./downloads", exist_ok=True)
+        
+        # Update status
+        await status_msg.edit_text(f"⬇️ Downloading: `{filename}`\n📊 Size: fetching...")
+        
+        # Download file
+        success, result = await download_file(download_url, file_path)
+        
+        if success:
+            # Get file size
+            file_size = os.path.getsize(file_path)
+            size_mb = file_size / (1024 * 1024)
+            
+            await status_msg.edit_text(f"✅ File downloaded successfully!\n📄 Name: `{filename}`\n📊 Size: {size_mb:.2f} MB\n\n📤 Uploading to Telegram...")
+            
+            try:
+                # Send file to user with original filename
+                await message.reply_document(
+                    document=file_path,
+                    caption=f"📄 `{filename}`\n📊 Size: {size_mb:.2f} MB\n🔗 Source: [MediaFire]({url})"
+                )
+                
+                # Send to log channel if configured
+                if LOG_CHANNEL:
+                    await client.send_document(
+                        chat_id=LOG_CHANNEL,
+                        document=file_path,
+                        caption=f"📥 Uploaded by: {message.from_user.mention}\n📄 Name: `{filename}`\n📊 Size: {size_mb:.2f} MB\n🔗 Source: {url}"
+                    )
+                
+                await status_msg.edit_text(f"✅ File uploaded successfully!\n\n📄 `{filename}`\n📊 Size: {size_mb:.2f} MB")
+                
+                # Clean up
+                os.remove(file_path)
+                print(f"✅ Removed local file: {file_path}")
+                
+            except Exception as e:
+                await status_msg.edit_text(f"❌ Upload failed: {str(e)}")
+                # Don't delete file if upload failed, maybe try again later
+        else:
+            await status_msg.edit_text(f"❌ Download failed: {result}")
+    else:
+        await message.reply_text("❌ Currently only MediaFire links are supported")
