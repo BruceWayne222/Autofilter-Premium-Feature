@@ -1456,7 +1456,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
                     InlineKeyboardButton('ᴛᴏᴘ sᴇᴀʀᴄʜɪɴɢ ⭐', callback_data="topsearch"),
                 ]]
         if query.from_user.id in ADMINS:
-            buttons.append([InlineKeyboardButton('🛠 Cᴏᴍᴍᴀɴᴅs', callback_data="commands")])
+            buttons[-1].append(InlineKeyboardButton('🛠 Cᴏᴍᴍᴀɴᴅs', callback_data="commands"))
         reply_markup = InlineKeyboardMarkup(buttons)
         current_time = datetime.now(pytz.timezone(TIMEZONE))
         curr_time = current_time.hour

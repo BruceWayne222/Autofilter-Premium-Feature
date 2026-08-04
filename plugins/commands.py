@@ -106,6 +106,8 @@ async def start(client, message):
                 ],[
                     InlineKeyboardButton('ᴛᴏᴘ sᴇᴀʀᴄʜɪɴɢ ⭐', callback_data="topsearch"),
                 ]]
+        if message.from_user.id in ADMINS:
+            buttons[-1].append(InlineKeyboardButton('🛠 Cᴏᴍᴍᴀɴᴅs', callback_data="commands"))
         reply_markup = InlineKeyboardMarkup(buttons)
         current_time = datetime.now(pytz.timezone(TIMEZONE))
         curr_time = current_time.hour        
@@ -137,6 +139,8 @@ async def start(client, message):
                 ],[
                     InlineKeyboardButton('ᴛᴏᴘ sᴇᴀʀᴄʜɪɴɢ ⭐', callback_data="topsearch"),
                 ]]
+        if message.from_user.id in ADMINS:
+            buttons[-1].append(InlineKeyboardButton('🛠 Cᴏᴍᴍᴀɴᴅs', callback_data="commands"))
         reply_markup = InlineKeyboardMarkup(buttons)
         current_time = datetime.now(pytz.timezone(TIMEZONE))
         curr_time = current_time.hour        
