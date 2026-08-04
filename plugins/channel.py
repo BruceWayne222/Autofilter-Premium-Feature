@@ -218,7 +218,7 @@ async def media_handler(bot, message):
         await bot.send_reaction(
             chat_id=message.chat.id,
             message_id=message.id,
-            emoji="✅"
+            emoji="👍"
         )
     except Exception:
         logger.exception(f"Could not react to saved file message {message.id}")
