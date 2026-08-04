@@ -1538,16 +1538,57 @@ async def cb_handler(client: Client, query: CallbackQuery):
             await query.answer("⚠️ Tʜɪs ɪs ᴏɴʟʏ ꜰᴏʀ ᴀᴅᴍɪɴs!", show_alert=True)
             return
         buttons = [[
-            InlineKeyboardButton('⇋ ʙᴀᴄᴋ ᴛᴏ ʜᴏᴍᴇ ⇋', callback_data='start')
+            InlineKeyboardButton('⇋ ʙᴀᴄᴋ ᴛᴏ ʜᴏᴍᴇ ⇋', callback_data='commands_back')
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
         group_cmd_body = script.GROUP_CMD.split("\n", 1)[1].lstrip("\n")
-        await query.message.edit_text(
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        await client.send_message(
+            query.message.chat.id,
             text=script.ADMIN_CMD + "\n\n" + group_cmd_body,
             reply_markup=reply_markup,
             disable_web_page_preview=True,
             parse_mode=enums.ParseMode.HTML
         )
+        await query.answer()
+
+    elif query.data == "commands_back":
+        buttons = [[
+                    InlineKeyboardButton('🔰 ᴀᴅᴅ ᴍᴇ ᴛᴏ ʏᴏᴜʀ ɢʀᴏᴜᴘ 🔰', url=f'http://telegram.me/{temp.U_NAME}?startgroup=true')
+                ],[
+                    InlineKeyboardButton(' ʜᴇʟᴘ 📢', callback_data='help'),
+                    InlineKeyboardButton(' ᴀʙᴏᴜᴛ 📖', callback_data='about')
+                ],[
+                    InlineKeyboardButton('ᴛᴏᴘ sᴇᴀʀᴄʜɪɴɢ ⭐', callback_data="topsearch"),
+                ]]
+        if query.from_user.id in ADMINS:
+            buttons[-1].append(InlineKeyboardButton('🛠 Cᴏᴍᴍᴀɴᴅs', callback_data="commands"))
+        reply_markup = InlineKeyboardMarkup(buttons)
+        current_time = datetime.now(pytz.timezone(TIMEZONE))
+        curr_time = current_time.hour
+        if curr_time < 12:
+            gtxt = "ɢᴏᴏᴅ ᴍᴏʀɴɪɴɢ 🌞"
+        elif curr_time < 17:
+            gtxt = "ɢᴏᴏᴅ ᴀғᴛᴇʀɴᴏᴏɴ 🌓"
+        elif curr_time < 21:
+            gtxt = "ɢᴏᴏᴅ ᴇᴠᴇɴɪɴɢ 🌘"
+        else:
+            gtxt = "ɢᴏᴏᴅ ɴɪɢʜᴛ 🌑"
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        await client.send_photo(
+            query.message.chat.id,
+            photo=random.choice(PICS),
+            caption=script.START_TXT.format(query.from_user.mention, gtxt, temp.U_NAME, temp.B_NAME),
+            reply_markup=reply_markup,
+            parse_mode=enums.ParseMode.HTML
+        )
+        await query.answer()
 
     elif query.data == "give_trial":
         try:
