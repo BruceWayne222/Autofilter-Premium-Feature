@@ -1367,7 +1367,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
         except Exception as e:
             pass
         await query.message.edit_text(
-            text=script.START_TXT.format(query.from_user.mention, gtxt, temp.U_NAME, temp.B_NAME),
+            text=script.START_TXT.format(query.from_user.mention, temp.U_NAME, temp.B_NAME),
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML
         )
@@ -1470,7 +1470,7 @@ async def cb_handler(client: Client, query: CallbackQuery):
         await client.send_photo(
             query.message.chat.id,
             photo=random.choice(PICS),
-            caption=script.START_TXT.format(query.from_user.mention, gtxt, temp.U_NAME, temp.B_NAME),
+            caption=script.START_TXT.format(query.from_user.mention, temp.U_NAME, temp.B_NAME),
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML
         )
