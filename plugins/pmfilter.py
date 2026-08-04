@@ -40,6 +40,8 @@ SPELL_CHECK = {}
 
 @Client.on_message(filters.group & filters.text & filters.incoming)
 async def give_filter(client, message):
+    if SEARCH_TOPIC_ID and message.chat.id != SUPPORT_CHAT_ID and message.message_thread_id != SEARCH_TOPIC_ID:
+        return
     if EMOJI_MODE:
         try:
             await message.react(emoji=random.choice(REACTIONS), big=True)
