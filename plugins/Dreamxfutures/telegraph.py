@@ -22,21 +22,26 @@ def img2url(file_path: str) -> str:
     if img_type not in SUPPORTED_TYPES:
         raise ValueError("Unsupported image type. Only jpg, jpeg, png are allowed.")
 
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; TelegraphUploader/1.0)"}
+
     with open(file_path, "rb") as f:
         resp = requests.post(
             TELEGRAPH_UPLOAD_URL,
-            files={"file": (f"tmp.{img_type}", f, f"image/{img_type}")},
+            files={"file0": (f"file0.{img_type}", f, f"image/{img_type}")},
+            headers=headers,
         )
 
     try:
         result = resp.json()
     except ValueError:
-        raise RuntimeError("Unexpected response from telegra.ph.")
+        raise RuntimeError(
+            f"Unexpected response from telegra.ph (HTTP {resp.status_code}): {resp.text[:200]}"
+        )
 
     if isinstance(result, dict) and result.get("error"):
         raise RuntimeError(result["error"])
     if not isinstance(result, list) or not result or "src" not in result[0]:
-        raise RuntimeError("Unexpected response from telegra.ph.")
+        raise RuntimeError(f"Unexpected response from telegra.ph: {result}")
 
     return "https://telegra.ph" + result[0]["src"]
 
