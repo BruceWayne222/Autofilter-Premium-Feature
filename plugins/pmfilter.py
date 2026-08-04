@@ -1455,6 +1455,8 @@ async def cb_handler(client: Client, query: CallbackQuery):
                 ],[
                     InlineKeyboardButton('ᴛᴏᴘ sᴇᴀʀᴄʜɪɴɢ ⭐', callback_data="topsearch"),
                 ]]
+        if query.from_user.id in ADMINS:
+            buttons.append([InlineKeyboardButton('🛠 Cᴏᴍᴍᴀɴᴅs', callback_data="commands")])
         reply_markup = InlineKeyboardMarkup(buttons)
         current_time = datetime.now(pytz.timezone(TIMEZONE))
         curr_time = current_time.hour
@@ -1526,6 +1528,22 @@ async def cb_handler(client: Client, query: CallbackQuery):
         reply_markup = InlineKeyboardMarkup(buttons)
         await query.message.edit_text(
             text=script.ABOUT_TXT.format(temp.U_NAME, temp.B_NAME, OWNER_LNK),
+            reply_markup=reply_markup,
+            disable_web_page_preview=True,
+            parse_mode=enums.ParseMode.HTML
+        )
+
+    elif query.data == "commands":
+        if query.from_user.id not in ADMINS:
+            await query.answer("⚠️ Tʜɪs ɪs ᴏɴʟʏ ꜰᴏʀ ᴀᴅᴍɪɴs!", show_alert=True)
+            return
+        buttons = [[
+            InlineKeyboardButton('⇋ ʙᴀᴄᴋ ᴛᴏ ʜᴏᴍᴇ ⇋', callback_data='start')
+        ]]
+        reply_markup = InlineKeyboardMarkup(buttons)
+        group_cmd_body = script.GROUP_CMD.split("\n", 1)[1].lstrip("\n")
+        await query.message.edit_text(
+            text=script.ADMIN_CMD + "\n\n" + group_cmd_body,
             reply_markup=reply_markup,
             disable_web_page_preview=True,
             parse_mode=enums.ParseMode.HTML
