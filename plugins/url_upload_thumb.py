@@ -31,6 +31,8 @@ import asyncio
 import subprocess
 from urllib.parse import urlparse, unquote
 
+import ssl
+import certifi
 import aiohttp
 from pyrogram import Client, filters
 from pyrogram.types import Message
@@ -175,7 +177,9 @@ async def download_file(url: str, status: Message) -> str:
     dest = os.path.join(DOWNLOAD_DIR, filename)
 
     timeout = aiohttp.ClientTimeout(total=None, sock_connect=30, sock_read=60)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
+    connector = aiohttp.TCPConnector(ssl=ssl_context)
+    async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
         async with session.get(url) as resp:
             if resp.status != 200:
                 raise RuntimeError(f"HTTP {resp.status}")
