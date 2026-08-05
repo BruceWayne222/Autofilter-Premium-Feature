@@ -65,6 +65,8 @@ PICS=
 SEARCH_TOPIC_ID=1
 UPDATE_CHNL_LNK=
 
+---
+
 ## ⚙️ Commands
 
 ```bash
