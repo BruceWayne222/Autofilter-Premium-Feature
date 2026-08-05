@@ -1,24 +1,29 @@
 """
 url_upload_thumb.py
 --------------------
-A self-contained Pyrogram plugin adding two features to a personal
+A self-contained Pyrogram plugin adding these features to a personal
 Telegram bot:
 
-  1. /upload <url>   -> downloads a file from a direct link and
-                         re-uploads it to the chat, with a live
-                         progress message.
+  1. /upload <url>   -> downloads a file from a direct link, then
+                         shows Rename / Upload buttons before sending.
   2. /setthumb        -> reply to a photo with this command to save
                          it as your personal custom thumbnail.
      /delthumb         -> remove your saved thumbnail.
+  3. After a file is uploaded, a "Send to DB Channel" button appears
+     that copies it straight to your configured database channel.
 
 If the uploaded file is a video and the user has no custom thumbnail
 saved, one is automatically extracted from the video with ffmpeg.
 
 Requirements:
-    pip install pyrogram tgcrypto aiohttp
+    pip install pyrogram tgcrypto aiohttp certifi
 
 You also need ffmpeg installed on the system (for video thumbnails):
     sudo apt install ffmpeg
+
+Config:
+    Set DB_CHANNEL_ID to your database channel's chat id (e.g. -1001234567890).
+    Your bot account must already be an admin/member of that channel.
 
 Wire this into your bot by importing the module (Pyrogram auto-loads
 decorated handlers) or by copying the plugin into your existing
@@ -35,7 +40,7 @@ import ssl
 import certifi
 import aiohttp
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 # ---------------------------------------------------------------------
 # Config / simple persistence
@@ -50,6 +55,15 @@ VIDEO_EXTS = {".mp4", ".mkv", ".mov", ".avi", ".webm"}
 
 # Throttle how often we edit the progress message (Telegram rate-limits edits)
 PROGRESS_EDIT_INTERVAL = 4  # seconds
+
+# Your database/storage channel. Use the numeric chat id (starts with -100 for channels).
+DB_CHANNEL_ID = int(os.environ.get("DB_CHANNEL_ID", "0"))
+
+# In-memory state. For a multi-worker/production deployment, swap these
+# for a real store (Redis, a DB table, etc.) since a plain dict only
+# works within a single running process.
+pending_files = {}   # user_id -> {"path": str, "is_video": bool}
+awaiting_rename = {} # user_id -> True while we're waiting for their new filename
 
 
 def user_thumb_path(user_id: int) -> str:
@@ -90,7 +104,7 @@ async def del_thumb(client: Client, message: Message):
 
 
 # ---------------------------------------------------------------------
-# /upload <url>
+# /upload <url>  -> download, then ask Rename / Upload as-is
 # ---------------------------------------------------------------------
 
 @Client.on_message(filters.command("upload"))
@@ -100,6 +114,7 @@ async def upload_from_url(client: Client, message: Message):
         return
 
     url = message.command[1]
+    user_id = message.from_user.id
     status = await message.reply_text("⏳ Starting download...")
 
     try:
@@ -110,19 +125,80 @@ async def upload_from_url(client: Client, message: Message):
 
     ext = os.path.splitext(file_path)[1].lower()
     is_video = ext in VIDEO_EXTS
+    pending_files[user_id] = {"path": file_path, "is_video": is_video}
 
-    thumb_path = user_thumb_path(message.from_user.id)
+    name = os.path.basename(file_path)
+    buttons = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("✏️ Rename", callback_data="rename_pending"),
+                InlineKeyboardButton("🚀 Upload as-is", callback_data="upload_pending"),
+            ]
+        ]
+    )
+    await status.edit_text(f"✅ Downloaded: `{name}`\n\nRename before uploading, or send as-is?", reply_markup=buttons)
+
+
+@Client.on_callback_query(filters.regex("^rename_pending$"))
+async def ask_rename(client: Client, cq: CallbackQuery):
+    user_id = cq.from_user.id
+    if user_id not in pending_files:
+        await cq.answer("Nothing pending — start with /upload <url>.", show_alert=True)
+        return
+    awaiting_rename[user_id] = True
+    await cq.answer()
+    await cq.message.edit_text("✍️ Send me the new filename (with extension), e.g. `MyFile.mp4`.")
+
+
+@Client.on_message(filters.text & filters.private & filters.create(lambda _, __, m: m.from_user and awaiting_rename.get(m.from_user.id)))
+async def capture_rename(client: Client, message: Message):
+    user_id = message.from_user.id
+    awaiting_rename.pop(user_id, None)
+    entry = pending_files.get(user_id)
+    if not entry:
+        await message.reply_text("Nothing pending — start with /upload <url>.")
+        return
+
+    new_name = message.text.strip()
+    old_path = entry["path"]
+    new_path = os.path.join(os.path.dirname(old_path), new_name)
+    os.rename(old_path, new_path)
+    entry["path"] = new_path
+    entry["is_video"] = os.path.splitext(new_path)[1].lower() in VIDEO_EXTS
+
+    status = await message.reply_text(f"✅ Renamed to `{new_name}`. Uploading...")
+    await do_upload(client, message.chat.id, user_id, status)
+
+
+@Client.on_callback_query(filters.regex("^upload_pending$"))
+async def confirm_upload(client: Client, cq: CallbackQuery):
+    user_id = cq.from_user.id
+    if user_id not in pending_files:
+        await cq.answer("Nothing pending — start with /upload <url>.", show_alert=True)
+        return
+    await cq.answer()
+    await cq.message.edit_text("⬆️ Uploading to Telegram...")
+    await do_upload(client, cq.message.chat.id, user_id, cq.message)
+
+
+async def do_upload(client: Client, chat_id: int, user_id: int, status: Message):
+    """Uploads the pending file for user_id into chat_id, then offers a
+    'Send to DB Channel' button on the resulting message."""
+    entry = pending_files.pop(user_id, None)
+    if not entry:
+        return
+    file_path = entry["path"]
+    is_video = entry["is_video"]
+
+    thumb_path = user_thumb_path(user_id)
     thumb_to_use = None
     generated_thumb = None
-
     if is_video:
         if os.path.exists(thumb_path):
             thumb_to_use = thumb_path
         else:
             generated_thumb = extract_video_thumbnail(file_path)
             thumb_to_use = generated_thumb
-
-    await status.edit_text("⬆️ Uploading to Telegram...")
 
     try:
         last_update = {"t": 0.0}
@@ -140,30 +216,51 @@ async def upload_from_url(client: Client, message: Message):
             except Exception:
                 pass  # ignore FLOOD_WAIT/edit races
 
+        send_kwargs = dict(
+            chat_id=chat_id,
+            caption=os.path.basename(file_path),
+            progress=progress,
+        )
         if is_video:
-            await client.send_video(
-                chat_id=message.chat.id,
-                video=file_path,
-                thumb=thumb_to_use,
-                caption=os.path.basename(file_path),
-                progress=progress,
-            )
+            sent = await client.send_video(video=file_path, thumb=thumb_to_use, **send_kwargs)
         else:
-            await client.send_document(
-                chat_id=message.chat.id,
-                document=file_path,
-                thumb=thumb_to_use if thumb_to_use else None,
-                caption=os.path.basename(file_path),
-                progress=progress,
+            sent = await client.send_document(document=file_path, thumb=thumb_to_use, **send_kwargs)
+
+        try:
+            await status.delete()
+        except Exception:
+            pass
+
+        if DB_CHANNEL_ID:
+            channel_btn = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("↪️ Forward to Channel", callback_data=f"tochannel:{sent.id}")]]
             )
-        await status.delete()
+            await client.edit_message_reply_markup(chat_id, sent.id, reply_markup=channel_btn)
+
     except Exception as e:
         await status.edit_text(f"❌ Upload failed: {e}")
     finally:
-        # cleanup temp files
         for p in (file_path, generated_thumb):
             if p and os.path.exists(p):
                 os.remove(p)
+
+
+@Client.on_callback_query(filters.regex(r"^tochannel:(\d+)$"))
+async def send_to_channel(client: Client, cq: CallbackQuery):
+    if not DB_CHANNEL_ID:
+        await cq.answer("DB_CHANNEL_ID isn't configured on the bot.", show_alert=True)
+        return
+
+    msg_id = int(cq.data.split(":")[1])
+    try:
+        await client.forward_messages(
+            chat_id=DB_CHANNEL_ID,
+            from_chat_id=cq.message.chat.id,
+            message_ids=msg_id,
+        )
+        await cq.answer("✅ Forwarded to DB channel.")
+    except Exception as e:
+        await cq.answer(f"❌ Failed: {e}", show_alert=True)
 
 
 # ---------------------------------------------------------------------
