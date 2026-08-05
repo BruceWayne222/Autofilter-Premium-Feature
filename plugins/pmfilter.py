@@ -1386,15 +1386,12 @@ async def cb_handler(client: Client, query: CallbackQuery):
         if query.from_user.id not in ADMINS:
             await query.answer("⚠️ Tʜɪs ɪs ᴏɴʟʏ ꜰᴏʀ ᴀᴅᴍɪɴs!", show_alert=True)
             return
+        await query.answer()
         buttons = [[
             InlineKeyboardButton('⇋ ʙᴀᴄᴋ ᴛᴏ ʜᴏᴍᴇ ⇋', callback_data='commands_back')
         ]]
         reply_markup = InlineKeyboardMarkup(buttons)
         group_cmd_body = script.GROUP_CMD.split("\n", 1)[1].lstrip("\n")
-        try:
-            await query.message.delete()
-        except Exception:
-            pass
         await client.send_message(
             query.message.chat.id,
             text=script.ADMIN_CMD + "\n\n" + group_cmd_body,
@@ -1402,9 +1399,13 @@ async def cb_handler(client: Client, query: CallbackQuery):
             disable_web_page_preview=True,
             parse_mode=enums.ParseMode.HTML
         )
-        await query.answer()
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
 
     elif query.data == "commands_back":
+        await query.answer()
         buttons = [[
                     InlineKeyboardButton(' ʜᴇʟᴘ 📢', callback_data='help'),
                     InlineKeyboardButton(' ᴀʙᴏᴜᴛ 📖', callback_data='about')
@@ -1424,10 +1425,6 @@ async def cb_handler(client: Client, query: CallbackQuery):
             gtxt = "ɢᴏᴏᴅ ᴇᴠᴇɴɪɴɢ 🌘"
         else:
             gtxt = "ɢᴏᴏᴅ ɴɪɢʜᴛ 🌑"
-        try:
-            await query.message.delete()
-        except Exception:
-            pass
         await client.send_photo(
             query.message.chat.id,
             photo=random.choice(PICS),
@@ -1435,7 +1432,10 @@ async def cb_handler(client: Client, query: CallbackQuery):
             reply_markup=reply_markup,
             parse_mode=enums.ParseMode.HTML
         )
-        await query.answer()
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
 
     elif query.data == "source":
         buttons = [[
