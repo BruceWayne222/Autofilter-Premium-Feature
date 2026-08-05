@@ -20,10 +20,8 @@
 - ✅ Request to Join via FSub (Admins Only)  
 - ✅ Verified User Database Save  
 - ✅ Superfast User Broadcast  
-- ✅ Refer & Earn Premium  
 - ✅ Top Searching  
 - ✅ Best Streaming Website Integration  
-- ✅ Premium Membership Management  
 - ✅ Online Streaming & Fast Download  
 - ✅ File Indexing Above 2GB  
 - ✅ PreDVD & CamRip Auto Deletion  
@@ -48,25 +46,6 @@
 
 ---
 
-## Variables
-ADMINS=
-API_HASH=
-API_ID=
-AUTH_CHANNEL=
-AUTH_USERS=
-BIN_CHANNEL=
-BOT_TOKEN=
-CHANNELS=
-COLLECTION_NAME=
-DATABASE_NAME=
-DATABASE_URI=
-LOG_CHANNEL=
-PICS=
-SEARCH_TOPIC_ID=1
-UPDATE_CHNL_LNK=
-
----
-
 ## ⚙️ Commands
 
 ```bash
@@ -76,8 +55,6 @@ verification        – View total verified users
 top                 – Search top trending items
 start               – Start the bot
 settings            – Modify bot settings
-plan                – View available premium plans
-myplan              – Check your active plan
 stats               – View database stats
 info                – Get user info
 id                  – Get Telegram ID
@@ -93,9 +70,6 @@ disable             – Disable group
 leave               – Leave group
 ban                 – Ban user from bot
 unban               – Unban user
-add_premium         – Add premium access
-remove_premium      – Remove premium access
-premium_users       – List premium users
 restart             – Restart the bot
 ```
 
