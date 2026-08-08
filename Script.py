@@ -122,9 +122,7 @@ Nᴀᴍᴇ - {}
 <blockquote>👇 नीचे दिए गए विकल्पों में से movie के नाम की सही spelling चुनें</blockquote>"""
 
 
-    DEL_MSG = """⚠️ This PDF file will be deleted in <b><u><code>{}</code></u></b>
-
-<blockquote expandable><b><i>ᴘʟᴇᴀꜱᴇ ꜰᴏʀᴡᴀʀᴅ ᴛʜɪꜱ ꜰɪʟᴇ ᴛᴏ ꜱᴏᴍᴇᴡʜᴇʀᴇ ᴇʟꜱᴇ & ꜱᴛᴀʀᴛ ᴅᴏᴡɴʟᴏᴀᴅɪɴɢ ᴛʜᴇʀᴇ</i></b></blockquote>"""
+    DEL_MSG = """⏰මෙම PDF එක තව විනාඩි <b><u><code>{}</code></u></b> ක් ඇතුලත Auto Delete වේ. ඊට පෙර මෙය Forward හෝ Download කරගන්න."""
 
 
 
