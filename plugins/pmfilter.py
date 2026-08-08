@@ -1335,26 +1335,6 @@ async def cb_handler(client: Client, query: CallbackQuery):
         )
         await query.answer(MSG_ALRT)
 
-    elif query.data == "donation":
-        buttons = [[
-                InlineKeyboardButton('⇍ ʙᴀᴄᴋ ⇏', callback_data='about')
-            ]]
-        reply_markup = InlineKeyboardMarkup(buttons)
-        await query.message.edit_text(text="● ◌ ◌")
-        await query.message.edit_text(text="● ● ◌")
-        await query.message.edit_text(text="● ● ●")
-        reply_markup = InlineKeyboardMarkup(buttons)
-        await client.edit_message_media(
-            query.message.chat.id,
-            query.message.id,
-            InputMediaPhoto('https://graph.org/file/99eebf5dbe8a134f548e0.jpg')
-        )
-        await query.message.edit_text(
-            text=script.DREAMXBOTZ_DONATION.format(query.from_user.mention, QR_CODE, OWNER_UPI_ID),
-            reply_markup=reply_markup,
-            parse_mode=enums.ParseMode.HTML
-        )
-
     elif query.data == "help":
         buttons = [[
             InlineKeyboardButton('⇋ ʙᴀᴄᴋ ᴛᴏ ʜᴏᴍᴇ ⇋', callback_data='start')
@@ -1369,8 +1349,6 @@ async def cb_handler(client: Client, query: CallbackQuery):
     elif query.data == "about":
         buttons = [[
             InlineKeyboardButton('‼️ ᴅɪꜱᴄʟᴀɪᴍᴇʀ ‼️', callback_data='disclaimer'),
-        ],[
-            InlineKeyboardButton('ᴅᴏɴᴀᴛɪᴏɴ 💰', callback_data='donation'),
         ],[
             InlineKeyboardButton('⇋ ʙᴀᴄᴋ ᴛᴏ ʜᴏᴍᴇ ⇋', callback_data='start')
         ]]
