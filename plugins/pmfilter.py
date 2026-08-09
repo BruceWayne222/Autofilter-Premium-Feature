@@ -97,7 +97,7 @@ async def pm_text(bot, message):
             await message.reply_text(
                 text=(
                     f"<b>🙋 ʜᴇʏ {user} 😍 ,\n\n"
-                    "ඔයාට PDF Search කරන්න පුලුවන් අපගේ සමූහය තුල පමණයි. කරුණාකර අපගේ සමූහයට එකතූ වී ඔබගේ ඉල්ලීම සිදු කරන්න.👇\n\n"</b>"
+                    "ඔයාට PDF Search කරන්න පුලුවන් අපගේ සමූහය තුල පමණයි. කරුණාකර අපගේ සමූහයට එකතූ වී ඔබගේ ඉල්ලීම සිදු කරන්න.👇\n\n</b>"
                 ), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📝 ʀᴇǫᴜᴇsᴛ ʜᴇʀᴇ ", url=GRP_LNK)]]))
             await bot.send_message(chat_id=LOG_CHANNEL,
                                    text=(
